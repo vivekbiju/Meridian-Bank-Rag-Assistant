@@ -5,7 +5,7 @@ import time
 import psycopg
 import pdfplumber
 import re
-from typing import Dict
+from typing import Dict, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
@@ -55,11 +55,11 @@ class JobStatusResponse(BaseModel):
     job_id: str
     status: str
     chunks_ingested: int = 0
-    error: str = None
+    error: Optional[str] = None
 
-# -------------------------------------------------------------------
+
 # Background Worker for Ingestion
-# -------------------------------------------------------------------
+
 def process_pdf_background(job_id: str, file_bytes: bytes, filename: str):
     try:
         ingestion_jobs[job_id]["status"] = "processing"
