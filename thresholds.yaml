@@ -1,0 +1,8 @@
+# Performance and Quality Thresholds for CI Gate
+retrieval:
+  recall_at_k: 0.85
+  mrr: 0.80
+
+generation:
+  refusal_correctness: 0.90
+  answer_correctness: 0.80

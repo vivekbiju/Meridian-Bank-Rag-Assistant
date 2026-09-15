@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+pydantic
+pypdf
+pdfplumber
+sentence-transformers
+psycopg[binary]
+pgvector
+requests
+pytest
+pyyaml
+python-dotenv
+groq
+openai

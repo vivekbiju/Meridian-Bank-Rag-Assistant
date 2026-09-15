@@ -1,0 +1,20 @@
+# Environment variables & API keys (CRITICAL)
+.env
+.env.*
+*.env
+
+# Python virtual environment & caches
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+
+# Output files & local logs
+extracted_output.txt
+*.log
+
+# IDE & OS specific files
+.vscode/
+.idea/
+.DS_Store
