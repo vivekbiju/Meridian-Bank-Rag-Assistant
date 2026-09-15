@@ -1,7 +1,12 @@
 import os
+import io
+import uuid
 import time
 import psycopg
-from fastapi import FastAPI, HTTPException
+import pdfplumber
+import re
+from typing import Dict
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from groq import Groq
@@ -11,12 +16,18 @@ load_dotenv()
 
 app = FastAPI(title="Meridian RAG Assistant")
 
-# Load local embedding model
+# Load local embedding model & clients
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 DB_URI = os.getenv("DATABASE_URL")
 
-# Required Pydantic Response Schemas
+# In-memory status tracker for document ingestion jobs
+ingestion_jobs: Dict[str, dict] = {}
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB Limit
+
+# -------------------------------------------------------------------
+# Pydantic Schemas
+# -------------------------------------------------------------------
 class Source(BaseModel):
     section: str
     chunk_index: int
@@ -24,7 +35,7 @@ class Source(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    top_k: int = 5  # Dynamic k parameter for ablation studies
+    top_k: int = 5
 
 class ChatResponse(BaseModel):
     reply: str
@@ -35,14 +46,71 @@ class ChatResponse(BaseModel):
     tokens_in: int = 0
     tokens_out: int = 0
 
+class JobResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    chunks_ingested: int = 0
+    error: str = None
+
+# -------------------------------------------------------------------
+# Background Worker for Ingestion
+# -------------------------------------------------------------------
+def process_pdf_background(job_id: str, file_bytes: bytes, filename: str):
+    try:
+        ingestion_jobs[job_id]["status"] = "processing"
+        
+        full_text = ""
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text() or ""
+                full_text += text + "\n"
+
+        chunk_size = 512
+        overlap = 64
+        start = 0
+        idx = 0
+        db_records = []
+        doc_tag = f"uploaded_{filename}"
+
+        while start < len(full_text):
+            chunk = full_text[start:start+chunk_size]
+            if chunk.strip():
+                vec = embedder.encode(chunk).tolist()
+                db_records.append((doc_tag, idx, chunk, str(vec)))
+            start += (chunk_size - overlap)
+            idx += 1
+
+        with psycopg.connect(DB_URI) as conn:
+            with conn.cursor() as cur:
+                cur.executemany("""
+                    INSERT INTO chunks (section, chunk_index, content, embedding)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (section, chunk_index) 
+                    DO UPDATE SET content = EXCLUDED.content, embedding = EXCLUDED.embedding;
+                """, db_records)
+                conn.commit()
+
+        ingestion_jobs[job_id]["status"] = "completed"
+        ingestion_jobs[job_id]["chunks_ingested"] = len(db_records)
+
+    except Exception as e:
+        ingestion_jobs[job_id]["status"] = "failed"
+        ingestion_jobs[job_id]["error"] = str(e)
+
+# -------------------------------------------------------------------
+# API Endpoints
+# -------------------------------------------------------------------
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     start_time = time.time()
     
-    # 1. Embed incoming user query
     query_vector = embedder.encode(request.message).tolist()
     
-    # 2. Retrieve top-k chunks via Cosine Similarity
     sources = []
     retrieved_texts = []
     DISTANCE_THRESHOLD = 0.85
@@ -62,7 +130,6 @@ async def chat(request: ChatRequest):
             sources.append(Source(section=section, chunk_index=chunk_idx, distance=float(dist)))
             retrieved_texts.append(f"Section: {section}\nContent: {content}")
 
-    # 3. Honest Refusal when nothing useful is retrieved below threshold
     if not retrieved_texts:
         latency = int((time.time() - start_time) * 1000)
         return ChatResponse(
@@ -75,7 +142,6 @@ async def chat(request: ChatRequest):
             tokens_out=0
         )
 
-    # 4. Construct System Prompt with strict Citation instructions
     context_block = "\n\n".join(retrieved_texts)
     system_prompt = f"""You are an assistant for Meridian Bank.
 Answer the question strictly using ONLY the provided context snippets below.
@@ -90,7 +156,6 @@ CONTEXT SNIPPETS:
 {context_block}
 """
 
-    # 5. Execute LLM Call via Groq
     response = groq_client.chat.completions.create(
         model="qwen/qwen3.8-27b",
         messages=[
@@ -111,4 +176,44 @@ CONTEXT SNIPPETS:
         latency_ms=latency,
         tokens_in=response.usage.prompt_tokens if response.usage else 0,
         tokens_out=response.usage.completion_tokens if response.usage else 0
+    )
+
+
+@app.post("/documents", response_model=JobResponse, status_code=202)
+async def upload_document(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Invalid file type. Only PDF files are accepted.")
+
+    contents = await file.read()
+
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="File size exceeds the maximum limit of 5MB.")
+
+    job_id = str(uuid.uuid4())
+    ingestion_jobs[job_id] = {
+        "status": "queued",
+        "chunks_ingested": 0,
+        "error": None
+    }
+
+    background_tasks.add_task(process_pdf_background, job_id, contents, file.filename)
+
+    return JobResponse(
+        job_id=job_id,
+        status="queued",
+        message="Document processing started. Use GET /documents/{job_id} to check status."
+    )
+
+
+@app.get("/documents/{job_id}", response_model=JobStatusResponse)
+async def get_job_status(job_id: str):
+    if job_id not in ingestion_jobs:
+        raise HTTPException(status_code=404, detail="Job ID not found.")
+    
+    job = ingestion_jobs[job_id]
+    return JobStatusResponse(
+        job_id=job_id,
+        status=job["status"],
+        chunks_ingested=job["chunks_ingested"],
+        error=job["error"]
     )
