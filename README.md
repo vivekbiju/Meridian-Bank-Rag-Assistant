@@ -6,6 +6,13 @@ This repository implements a production RAG pipeline, complete with dynamic PDF 
 
 ---
 
+## Live Deployments
+
+* **Vercel (Frontend App):** https://meridian-bank-rag-assistant-39x1leq5i-vivekbiju.vercel.app/
+* **Render (Backend API):** https://meridian-bank-rag-assistant-1.onrender.com/docs
+
+---
+
 ## Architecture Overview
 
 * **Frontend:** Next.js application deployed on **Vercel** featuring loading states, dynamic regex Markdown rendering, and proxy rewriting.
