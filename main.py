@@ -85,7 +85,7 @@ def process_pdf_background(job_id: str, file_bytes: bytes, filename: str):
             start += (chunk_size - overlap)
             idx += 1
 
-        with psycopg.connect(DB_URI) as conn:
+        with psycopg.connect(DB_URI,sslmode="require") as conn:
             with conn.cursor() as cur:
                 cur.executemany("""
                     INSERT INTO chunks (section, chunk_index, content, embedding)
@@ -115,7 +115,7 @@ async def chat(request: ChatRequest):
     retrieved_texts = []
     DISTANCE_THRESHOLD = 0.85
     
-    with psycopg.connect(DB_URI) as conn:
+    with psycopg.connect(DB_URI,sslmode="require") as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT section, chunk_index, content, (embedding <=> %s::vector) as distance
