@@ -12,33 +12,46 @@ embedder = SentenceTransformer("all-MiniLM-L6-v2")
 DB_URI = os.getenv("DATABASE_URL")
 
 def extract_pdf_text(pdf_path: str) -> str:
-    full_text = ""
+    """Extracts text from PDF while removing running headers/footers."""
+    full_text = []
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
             text = page.extract_text() or ""
-            # Strip running headers/footers without dropping body content
-            text = re.sub(r"Meridian Bank plc.*?\n", "", text)
-            text = re.sub(r"Valid from 1 March 2026.*?\n", "", text)
-            text = re.sub(r"Page \d+", "", text)
-            full_text += text + "\n"
-    return full_text
+            # Clean header/footer lines while preserving main body structure
+            lines = [
+                line for line in text.split("\n")
+                if not re.search(r"(Meridian Bank plc|Valid from|Page \d+)", line, re.IGNORECASE)
+            ]
+            full_text.append("\n".join(lines))
+    return "\n\n".join(full_text)
 
 def chunk_full_text(text: str, chunk_size=512, overlap=64):
+    """Splits text into overlapping sliding windows and tracks active section titles."""
     chunks = []
     start = 0
+    stride = chunk_size - overlap
     text_len = len(text)
+    
+    # State tracking: default initial section name
+    current_section = "Section 1: Accounts & Banking Services"
     
     while start < text_len:
         end = start + chunk_size
         chunk_content = text[start:end].strip()
         
-        if chunk_content:
-            # Match section titles like "1. Your cards" or default to general context
-            section_match = re.search(r"(\d+\.\s+[A-Za-z0-9\s]+)", chunk_content)
-            section_title = section_match.group(1).strip() if section_match else "General Handbook Context"
-            chunks.append((section_title, chunk_content))
+        if len(chunk_content) > 20:
+            # Flexible pattern capturing headers like "1. Accounts", "Section 2: Cards", or "12. Fees"
+            section_match = re.search(
+                r"((?:Section\s+)?\d+[\.:]?\s+[A-Za-z0-9\s,&]+)", 
+                chunk_content, 
+                re.IGNORECASE
+            )
+            if section_match:
+                current_section = section_match.group(1).strip()
+                
+            chunks.append((current_section, chunk_content))
             
-        start += (chunk_size - overlap)
+        start += stride
         
     return chunks
 
@@ -52,7 +65,7 @@ def ingest():
     raw_chunks = chunk_full_text(pdf_text, chunk_size=512, overlap=64)
     print(f"Generated {len(raw_chunks)} chunks. Batch generating embeddings...")
 
-    # Vectorized Batch Encoding (4x faster than looping single chunks)
+    # Vectorized Batch Encoding (fast execution across CPU cores)
     contents = [chunk[1] for chunk in raw_chunks]
     embeddings = embedder.encode(contents, batch_size=32, show_progress_bar=True)
 
@@ -61,7 +74,7 @@ def ingest():
         for i in range(len(raw_chunks))
     ]
 
-    print("Ingesting chunks into pgvector...")
+    print("Ingesting chunks into pgvector database...")
 
     with psycopg.connect(DB_URI) as conn:
         with conn.cursor() as cur:
@@ -91,7 +104,7 @@ def ingest():
             cur.executemany(upsert_query, db_records)
             conn.commit()
 
-    print("Re-ingestion complete successfully.")
+    print("Re-ingestion completed successfully.")
 
 if __name__ == "__main__":
     ingest()
