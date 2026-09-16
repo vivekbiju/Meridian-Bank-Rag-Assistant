@@ -11,7 +11,6 @@ from pydantic import BaseModel
 from fastembed import TextEmbedding
 from groq import Groq
 from dotenv import load_dotenv
-#frontend import
 from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
@@ -34,9 +33,9 @@ DB_URI = os.getenv("DATABASE_URL")
 ingestion_jobs: Dict[str, dict] = {}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB Limit
 
-# -------------------------------------------------------------------
+
 # Pydantic Schemas
-# -------------------------------------------------------------------
+
 class Source(BaseModel):
     section: str
     chunk_index: int
@@ -67,9 +66,9 @@ class JobStatusResponse(BaseModel):
     error: Optional[str] = None
 
 
-# -------------------------------------------------------------------
+
 # Background Worker for Ingestion
-# -------------------------------------------------------------------
+
 def process_pdf_background(job_id: str, file_bytes: bytes, filename: str):
     try:
         ingestion_jobs[job_id]["status"] = "processing"
@@ -90,7 +89,6 @@ def process_pdf_background(job_id: str, file_bytes: bytes, filename: str):
         while start < len(full_text):
             chunk = full_text[start:start+chunk_size]
             if chunk.strip():
-                # FIXED: Updated FastEmbed syntax for background ingestion
                 vec = list(embedder.embed(chunk))[0].tolist()
                 db_records.append((doc_tag, idx, chunk, str(vec)))
             start += (chunk_size - overlap)
@@ -113,16 +111,14 @@ def process_pdf_background(job_id: str, file_bytes: bytes, filename: str):
         ingestion_jobs[job_id]["status"] = "failed"
         ingestion_jobs[job_id]["error"] = str(e)
 
-# -------------------------------------------------------------------
 # API Endpoints
-# -------------------------------------------------------------------
-# 1. Add OPTIONS handlers for browser CORS preflight checks
-@app.options("/chat")
-@app.options("/chat/")
+# Silent OPTIONS handlers for browser CORS preflight checks (hidden from Swagger UI)
+@app.options("/chat", include_in_schema=False)
+@app.options("/chat/", include_in_schema=False)
 async def options_chat():
     return {}
 
-# 2. Add dual POST routes to prevent 307 redirect CORS drops
+# Dual POST routes to prevent 307 redirect CORS drops
 @app.post("/chat", response_model=ChatResponse)
 @app.post("/chat/", response_model=ChatResponse)
 async def chat(request: ChatRequest):
