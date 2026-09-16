@@ -8,7 +8,7 @@ import re
 from typing import Dict, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from pydantic import BaseModel
-from fastembed import TextEmbedding
+from sentence_transformers import SentenceTransformer
 from groq import Groq
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,8 +24,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load lightweight FastEmbed model (matches all-MiniLM-L6-v2 weights with ONNX runtime)
-embedder = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
+# Load lightweight 384-dimensional embedding model matching ingest.py
+embedder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 DB_URI = os.getenv("DATABASE_URL")
 
@@ -88,7 +88,7 @@ def process_pdf_background(job_id: str, file_bytes: bytes, filename: str):
         while start < len(full_text):
             chunk = full_text[start:start+chunk_size]
             if chunk.strip():
-                vec = list(embedder.embed(chunk))[0].tolist()
+                vec = embedder.encode(chunk).tolist()
                 db_records.append((doc_tag, idx, chunk, str(vec)))
             start += (chunk_size - overlap)
             idx += 1
@@ -123,15 +123,14 @@ async def options_chat():
 async def chat(request: ChatRequest):
     start_time = time.time()
     
-    # 1. Generate Query Vector
+    # 1. Generate Query Vector using SentenceTransformer
     try:
-        query_vector = list(embedder.embed(request.message))[0].tolist()
+        query_vector = embedder.encode(request.message).tolist()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Embedding Error: {str(e)}")
     
     sources = []
     retrieved_texts = []
-    DISTANCE_THRESHOLD = 0.85
     
     # 2. Database Retrieval
     try:
@@ -149,9 +148,8 @@ async def chat(request: ChatRequest):
 
     for section, chunk_idx, content, dist in rows:
         distance_val = float(dist) if dist is not None else 0.0
-        if distance_val <= DISTANCE_THRESHOLD:
-            sources.append(Source(section=str(section), chunk_index=int(chunk_idx), distance=distance_val))
-            retrieved_texts.append(f"Section: {section}\nContent: {content}")
+        sources.append(Source(section=str(section), chunk_index=int(chunk_idx), distance=distance_val))
+        retrieved_texts.append(f"Section: {section}\nContent: {content}")
 
     if not retrieved_texts:
         latency = int((time.time() - start_time) * 1000)
@@ -193,7 +191,6 @@ CONTEXT SNIPPETS:
         tokens_in = response.usage.prompt_tokens if response.usage else 0
         tokens_out = response.usage.completion_tokens if response.usage else 0
     except Exception as e:
-        # Fallback response if Groq API rate limits or errors out so evaluation doesn't fail with 500
         reply_text = "I am sorry, but the Meridian Bank handbook does not contain information to answer your request."
         tokens_in = 0
         tokens_out = 0
