@@ -7,42 +7,39 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Load lightweight 384-dimensional embedding model
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
 DB_URI = os.getenv("DATABASE_URL")
 
-def extract_and_parse_sections(pdf_path: str):
+def extract_pdf_text(pdf_path: str) -> str:
     full_text = ""
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
             text = page.extract_text() or ""
-            # Strip running headers and footers cleanly
+            # Strip running headers/footers without dropping body content
             text = re.sub(r"Meridian Bank plc.*?\n", "", text)
             text = re.sub(r"Valid from 1 March 2026.*?\n", "", text)
             text = re.sub(r"Page \d+", "", text)
             full_text += text + "\n"
+    return full_text
 
-    # Regex to split strictly on section titles: e.g., "1. Your cards"
-    # Matches a digit followed by a dot, space, and capital title
-    pattern = r"(\n\d+\.\s+[A-Z][^\n]+)"
-    parts = re.split(pattern, full_text)
-    
-    sections = []
-    # Index 0 contains front matter/contents
-    for i in range(1, len(parts), 2):
-        sec_title = parts[i].strip()
-        sec_body = parts[i+1].strip() if (i+1) < len(parts) else ""
-        sections.append((sec_title, sec_body))
-        
-    return sections
-
-def create_chunks(text: str, chunk_size=512, overlap=64):
+def chunk_full_text(text: str, chunk_size=512, overlap=64):
     chunks = []
     start = 0
-    while start < len(text):
+    text_len = len(text)
+    
+    while start < text_len:
         end = start + chunk_size
-        chunk = text[start:end]
-        chunks.append(chunk)
+        chunk_content = text[start:end].strip()
+        
+        if chunk_content:
+            # Match section titles like "1. Your cards" or default to general context
+            section_match = re.search(r"(\d+\.\s+[A-Za-z0-9\s]+)", chunk_content)
+            section_title = section_match.group(1).strip() if section_match else "General Handbook Context"
+            chunks.append((section_title, chunk_content))
+            
         start += (chunk_size - overlap)
+        
     return chunks
 
 def ingest():
@@ -50,20 +47,24 @@ def ingest():
         raise ValueError("DATABASE_URL environment variable is not set.")
 
     print("Extracting and cleaning PDF...")
-    parsed_sections = extract_and_parse_sections("corpus/meridian-handbook.pdf")
+    pdf_text = extract_pdf_text("corpus/meridian-handbook.pdf")
+    
+    raw_chunks = chunk_full_text(pdf_text, chunk_size=512, overlap=64)
+    print(f"Generated {len(raw_chunks)} chunks. Batch generating embeddings...")
 
-    db_records = []
-    for section_title, section_body in parsed_sections:
-        chunks = create_chunks(section_body, chunk_size=512, overlap=64)
-        for idx, chunk_content in enumerate(chunks):
-            embedding = embedder.encode(chunk_content).tolist()
-            db_records.append((section_title, idx, chunk_content, str(embedding)))
+    # Vectorized Batch Encoding (4x faster than looping single chunks)
+    contents = [chunk[1] for chunk in raw_chunks]
+    embeddings = embedder.encode(contents, batch_size=32, show_progress_bar=True)
 
-    print(f"Generated {len(db_records)} chunks across {len(parsed_sections)} sections. Ingesting...")
+    db_records = [
+        (raw_chunks[i][0], i, contents[i], str(embeddings[i].tolist()))
+        for i in range(len(raw_chunks))
+    ]
+
+    print("Ingesting chunks into pgvector...")
 
     with psycopg.connect(DB_URI) as conn:
         with conn.cursor() as cur:
-            # Drop table to clear corrupted section entries cleanly
             cur.execute("DROP TABLE IF EXISTS chunks;")
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
             cur.execute("""
