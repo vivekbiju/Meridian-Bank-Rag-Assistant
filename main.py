@@ -8,7 +8,7 @@ import re
 from typing import Dict, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from pydantic import BaseModel
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 from groq import Groq
 from dotenv import load_dotenv
 
@@ -16,8 +16,8 @@ load_dotenv()
 
 app = FastAPI(title="Meridian RAG Assistant")
 
-# Load local embedding model & clients
-embedder = SentenceTransformer("all-MiniLM-L6-v2")
+# Load lightweight FastEmbed model (matches all-MiniLM-L6-v2 weights with ONNX runtime)
+embedder = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 DB_URI = os.getenv("DATABASE_URL")
 
@@ -58,7 +58,9 @@ class JobStatusResponse(BaseModel):
     error: Optional[str] = None
 
 
+# -------------------------------------------------------------------
 # Background Worker for Ingestion
+# -------------------------------------------------------------------
 def process_pdf_background(job_id: str, file_bytes: bytes, filename: str):
     try:
         ingestion_jobs[job_id]["status"] = "processing"
@@ -79,7 +81,8 @@ def process_pdf_background(job_id: str, file_bytes: bytes, filename: str):
         while start < len(full_text):
             chunk = full_text[start:start+chunk_size]
             if chunk.strip():
-                vec = embedder.encode(chunk).tolist()
+                # FIXED: Updated FastEmbed syntax for background ingestion
+                vec = list(embedder.embed(chunk))[0].tolist()
                 db_records.append((doc_tag, idx, chunk, str(vec)))
             start += (chunk_size - overlap)
             idx += 1
@@ -110,7 +113,7 @@ async def chat(request: ChatRequest):
     
     # 1. Generate Query Vector
     try:
-        query_vector = embedder.encode(request.message).tolist()
+        query_vector = list(embedder.embed(request.message))[0].tolist()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Embedding Error: {str(e)}")
     
