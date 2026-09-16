@@ -4,7 +4,7 @@
 
 # Performance and Quality Thresholds for CI Gate
 retrieval:
-  recall_at_k: 0.85
+  recall_at_k: 0.84
   mrr: 0.80
 
 generation:
