@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-API_URL = os.getenv("API_URL", "http://127.0.0.1:8000/chat")
+API_URL = os.getenv("API_URL", "https://meridian-bank-rag-assistant-1.onrender.com/chat")
 
 def run_evaluation():
     if not os.path.exists("golden_set.json"):
