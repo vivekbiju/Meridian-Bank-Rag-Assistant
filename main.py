@@ -166,7 +166,7 @@ CONTEXT SNIPPETS:
     # 3. Groq LLM Generation
     try:
         response = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="qwen/qwen3.8-27b",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": request.message}
