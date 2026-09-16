@@ -120,7 +120,7 @@ async def options_chat():
 
 # Dual POST routes to prevent 307 redirect CORS drops
 @app.post("/chat", response_model=ChatResponse)
-@app.post("/chat/", response_model=ChatResponse)
+@app.post("/chat/", response_model=ChatResponse, include_in_schema=False)
 async def chat(request: ChatRequest):
     start_time = time.time()
     
