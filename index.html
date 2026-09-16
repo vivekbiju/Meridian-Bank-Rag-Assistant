@@ -9,7 +9,7 @@
         #chat-box { border: 1px solid #ccc; height: 350px; overflow-y: scroll; padding: 10px; margin-bottom: 10px; border-radius: 6px; }
         .user { color: #0056b3; margin: 8px 0; font-weight: bold; }
         .bot { color: #2d3748; margin: 8px 0; }
-        .sources { font-size: 0.8em; color: #718096; margin-left: 10px; }
+        .sources { font-size: 0.8em; color: #718096; margin-top: 4px; margin-left: 10px; }
         input[type="text"] { width: 78%; padding: 10px; border-radius: 4px; border: 1px solid #ccc; }
         button { width: 18%; padding: 10px; background: #0056b3; color: white; border: none; border-radius: 4px; cursor: pointer; }
     </style>
@@ -17,11 +17,19 @@
 <body>
     <h2>Meridian Bank AI Assistant</h2>
     <div id="chat-box"></div>
-    <input type="text" id="user-input" placeholder="Ask a question about bank policies...">
+    <input type="text" id="user-input" placeholder="Ask a question about bank policies..." onkeydown="if(event.key === 'Enter') sendMessage()">
     <button onclick="sendMessage()">Send</button>
 
     <script>
         const RENDER_API = "/api/chat";
+
+        // Converts basic markdown (**text**) into HTML tags (<b>text</b>)
+        function formatMarkdown(text) {
+            return text
+                .replace(/\*\*\*(.*?)\*\*\*/g, '<b><i>$1</i></b>')
+                .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+                .replace(/\*(.*?)\*/g, '<i>$1</i>');
+        }
 
         async function sendMessage() {
             const input = document.getElementById("user-input");
@@ -33,13 +41,24 @@
             input.value = "";
             box.scrollTop = box.scrollHeight;
 
+            // Display temporary loading indicator
+            const loadingId = "loading-" + Date.now();
+            box.innerHTML += `<div class="bot" id="${loadingId}">Assistant: <i>Thinking...</i></div>`;
+            box.scrollTop = box.scrollHeight;
+
             try {
                 const res = await fetch(RENDER_API, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ message: msg })
                 });
+
+                if (!res.ok) {
+                    throw new Error(`Server status ${res.status}`);
+                }
+
                 const data = await res.json();
+                const loadingElem = document.getElementById(loadingId);
                 
                 let sourceText = "";
                 if (data.sources && data.sources.length > 0) {
@@ -47,9 +66,16 @@
                     sourceText = `<div class="sources">Citations: ${sections.join(", ")}</div>`;
                 }
 
-                box.innerHTML += `<div class="bot">Assistant: ${data.reply}${sourceText}</div>`;
+                const formattedReply = formatMarkdown(data.reply);
+
+                if (loadingElem) {
+                    loadingElem.innerHTML = `Assistant: ${formattedReply}${sourceText}`;
+                }
             } catch (err) {
-                box.innerHTML += `<div class="bot" style="color:red;">Error connecting to Render backend.</div>`;
+                const loadingElem = document.getElementById(loadingId);
+                if (loadingElem) {
+                    loadingElem.innerHTML = `<span style="color:red;">Error connecting to Render backend (${err.message}).</span>`;
+                }
             }
             box.scrollTop = box.scrollHeight;
         }
