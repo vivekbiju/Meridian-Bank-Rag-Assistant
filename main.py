@@ -35,7 +35,7 @@ class Source(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    top_k: int = 2
+    top_k: int = 5
 
 class ChatResponse(BaseModel):
     reply: str
@@ -166,7 +166,7 @@ CONTEXT SNIPPETS:
     # 3. Groq LLM Generation
     try:
         response = groq_client.chat.completions.create(
-            model="qwen/qwen3.8-27b",
+            model="groq/compound",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": request.message}
