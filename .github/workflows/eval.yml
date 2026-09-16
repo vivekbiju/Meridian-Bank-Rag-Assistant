@@ -24,6 +24,12 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests pyyaml python-dotenv
 
+    - name: Warm Up Render Service (Prevents Cold Start Drop)
+      run: |
+        echo "Waking up Render backend..."
+        curl -s --max-time 60 https://meridian-bank-rag-assistant-1.onrender.com/docs || true
+        sleep 15
+
     - name: Run Evaluation Gate Suite
       env:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
