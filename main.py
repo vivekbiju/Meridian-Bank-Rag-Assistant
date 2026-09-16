@@ -35,7 +35,7 @@ class Source(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    top_k: int = 5
+    top_k: int = 2
 
 class ChatResponse(BaseModel):
     reply: str
