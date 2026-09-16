@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/chat",
+      "destination": "https://meridian-bank-rag-assistant-1.onrender.com/chat"
+    }
+  ]
+}
