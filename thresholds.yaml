@@ -1,3 +1,7 @@
+# Threshold set to 0.85 based on Part 4 ablation matrix results.
+# 0.85 balances catching performance regressions without triggering false positives 
+# due to non-deterministic LLM sampling or minor text variations.
+
 # Performance and Quality Thresholds for CI Gate
 retrieval:
   recall_at_k: 0.85
