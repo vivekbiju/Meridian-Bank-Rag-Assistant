@@ -116,7 +116,15 @@ def process_pdf_background(job_id: str, file_bytes: bytes, filename: str):
 # -------------------------------------------------------------------
 # API Endpoints
 # -------------------------------------------------------------------
+# 1. Add OPTIONS handlers for browser CORS preflight checks
+@app.options("/chat")
+@app.options("/chat/")
+async def options_chat():
+    return {}
+
+# 2. Add dual POST routes to prevent 307 redirect CORS drops
 @app.post("/chat", response_model=ChatResponse)
+@app.post("/chat/", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     start_time = time.time()
     
