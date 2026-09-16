@@ -71,31 +71,31 @@ Automated builds (`.github/workflows/eval.yml`) execute `scripts/eval.py --offli
 
 ## Operational Metrics & Production Runbook (Part 7)
 
-1. Benchmark Performance & Cost (50-Request Sample)
-   * **p50 Latency:** 3.84s (3,836 ms)
-   * **p95 Latency:** 4.51s (4,512 ms)
-   * **Error Rate:** 0.0% (50/50 successful responses.
-   * **Cost at List Prices:**
-       * **Render & Neon Postgres:** Free Tier ($0.00)
-       * **Groq API (`groq/compound`):** Free Tier / < $0.01 total list price for 50 benchmark requests.
-         
-2. Cold Start Penalty
-   * **Cold Request (idle > 1 hour):** 46.20s (Render free container spin-up + FastEmbed ONNX runtime load)
-   * **Warm Request:** 3.84 s
-   * **Cold Start Penalty Overhead:** +42.36s
-     
-3. Production Monitoring Signals & Alert Thresholds
-    * **HTTP 5xx Error Rate:** Alert threshold > 2.0 % over a 5-minute rolling window (indicates database connection drops or Groq API outages).
-    *  **p95 Response Latency:** Alert threshold > 8.0 seconds over a 10-minute rolling window (indicates vector search degradation or upstream LLM throttling).
-    *  **Refusal / Fallback Rate:** Alert threshold > 15.0 % over a 15-minute rolling window (indicates embedding drift or document ingestion failures).
-    
-4. Runbook Entry: Upstream LLM API Failure / Rate Limiting
-    * **What Breaks:** Groq API returns 429 Rate Limit Exceeded or 503 Service Unavailable, causing FastAPI to return 500 Internal Server Error responses to the          client.
-    * **How You Notice:** HTTP 5xx Error Rate alert triggers (> 2% in 5 min), or Render application logs display repeated GroqAPIError exceptions.
-    * **Immediate Response Steps:**
-      1. **Check Provider Status:** Verify active outages on the upstream Groq status page.
-      2. **Inspect Error Traces:** Review Render deployment logs to distinguish between quota limits (429) and server errors (5xx).
-      3. **Execute Failover:** Update GROQ_MODEL or secondary fallback environment variables in Render to route inference through an alternative model tier or               backup API key.
+ **1. Benchmark Performance & Cost (50-Request Sample)**
+* **p50 Latency:** 3.84s (3,836 ms)
+* **p95 Latency:** 4.51s (4,512 ms)
+* **Error Rate:** 0.0% (50/50 successful responses)
+* **Cost at List Prices:** 
+  * **Render & Neon Postgres:** Free Tier ($0.00)
+  * **Groq API (`groq/compound`):** Free Tier / < $0.01 total list price for 50 requests
+
+**2. Cold Start Penalty**
+* **Cold Request (idle > 1 hour):** 46.20s (Render free container spin-up + FastEmbed load)
+* **Warm Request:** 3.84s
+* **Cold Start Penalty Overhead:** +42.36s
+
+**3. Production Monitoring Signals & Alert Thresholds**
+* **HTTP 5xx Error Rate:** Alert if > 2.0% over a 5-minute rolling window.
+* **p95 Response Latency:** Alert if > 8.0 seconds over a 10-minute rolling window.
+* **Refusal / Fallback Rate:** Alert if > 15.0% over a 15-minute rolling window.
+
+**4. Runbook Entry: Upstream LLM API Failure / Rate Limiting**
+* **What Breaks:** Groq API returns `429 Rate Limit Exceeded` or `503 Service Unavailable`.
+* **How You Notice:** HTTP 5xx Error Rate alert triggers (> 2% in 5 min) or `GroqAPIError` appears in Render logs.
+* **Immediate Response Steps:**
+  1. Verify upstream status on the official Groq status page.
+  2. Inspect Render deployment logs to distinguish quota limits (`429`) from server errors (`5xx`).
+  3. Execute failover by updating `GROQ_MODEL` or backup API key environment variables in Render.
 
 ---
 
