@@ -11,10 +11,19 @@ from pydantic import BaseModel
 from fastembed import TextEmbedding
 from groq import Groq
 from dotenv import load_dotenv
+#frontend import
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
 app = FastAPI(title="Meridian RAG Assistant")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Load lightweight FastEmbed model (matches all-MiniLM-L6-v2 weights with ONNX runtime)
 embedder = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
