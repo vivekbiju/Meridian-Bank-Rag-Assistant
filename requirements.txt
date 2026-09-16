@@ -3,7 +3,7 @@ uvicorn
 pydantic
 pypdf
 pdfplumber
-sentence-transformers
+#sentence-transformers
 psycopg[binary]
 pgvector
 requests
@@ -14,4 +14,5 @@ groq
 openai
 numpy
 python-multipart
+fastembed
 --extra-index-url https://download.pytorch.org/whl/cpu
