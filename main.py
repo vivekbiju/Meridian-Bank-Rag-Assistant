@@ -59,7 +59,6 @@ class JobStatusResponse(BaseModel):
 
 
 # Background Worker for Ingestion
-
 def process_pdf_background(job_id: str, file_bytes: bytes, filename: str):
     try:
         ingestion_jobs[job_id]["status"] = "processing"
@@ -85,7 +84,7 @@ def process_pdf_background(job_id: str, file_bytes: bytes, filename: str):
             start += (chunk_size - overlap)
             idx += 1
 
-        with psycopg.connect(DB_URI,sslmode="require") as conn:
+        with psycopg.connect(DB_URI, sslmode="require") as conn:
             with conn.cursor() as cur:
                 cur.executemany("""
                     INSERT INTO chunks (section, chunk_index, content, embedding)
@@ -109,21 +108,29 @@ def process_pdf_background(job_id: str, file_bytes: bytes, filename: str):
 async def chat(request: ChatRequest):
     start_time = time.time()
     
-    query_vector = embedder.encode(request.message).tolist()
+    # 1. Generate Query Vector
+    try:
+        query_vector = embedder.encode(request.message).tolist()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Embedding Error: {str(e)}")
     
     sources = []
     retrieved_texts = []
     DISTANCE_THRESHOLD = 0.85
     
-    with psycopg.connect(DB_URI,sslmode="require") as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT section, chunk_index, content, (embedding <=> %s::vector) as distance
-                FROM chunks
-                ORDER BY distance ASC
-                LIMIT %s;
-            """, (str(query_vector), request.top_k))
-            rows = cur.fetchall()
+    # 2. Database Retrieval
+    try:
+        with psycopg.connect(DB_URI, sslmode="require") as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT section, chunk_index, content, (embedding <=> %s::vector) as distance
+                    FROM chunks
+                    ORDER BY distance ASC
+                    LIMIT %s;
+                """, (str(query_vector), request.top_k))
+                rows = cur.fetchall()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database Query Error: {str(e)}")
 
     for section, chunk_idx, content, dist in rows:
         if dist <= DISTANCE_THRESHOLD:
@@ -156,14 +163,18 @@ CONTEXT SNIPPETS:
 {context_block}
 """
 
-    response = groq_client.chat.completions.create(
-        model="qwen/qwen3.8-27b",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": request.message}
-        ],
-        temperature=0.0
-    )
+    # 3. Groq LLM Generation
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": request.message}
+            ],
+            temperature=0.0
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Groq API Error: {str(e)}")
 
     reply_text = response.choices[0].message.content
     latency = int((time.time() - start_time) * 1000)
