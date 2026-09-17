@@ -24,17 +24,24 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Start Local Backend Server & Wait for Health Check
+    - name: Start Local Backend Server
       env:
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       run: |
         nohup uvicorn main:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
         
-        echo "Waiting for FastAPI server to initialize..."
+        echo "Waiting for FastAPI server to boot..."
+        count=0
         until curl -s http://127.0.0.1:8000/docs > /dev/null; do
-          echo "Server booting up..."
           sleep 3
+          count=$((count+1))
+          if [ $count -ge 20 ]; then
+            echo "[ERROR] Server failed to start within 60 seconds!"
+            echo "=== UVICORN CRASH LOGS ==="
+            cat uvicorn.log
+            exit 1
+          fi
         done
         echo "FastAPI server is live!"
 
@@ -44,9 +51,3 @@ jobs:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       run: |
         python scripts/eval.py --offline-fail-under-config thresholds.yaml
-
-    - name: Print Uvicorn Logs on Failure
-      if: failure()
-      run: |
-        echo "=== Uvicorn Logs ==="
-        cat uvicorn.log
